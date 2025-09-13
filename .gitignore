@@ -57,3 +57,13 @@ e2b-template-*
 repomix-output.txt
 bun.lockb
 .env*.local
+
+# Devenv
+.devenv*
+devenv.local.nix
+
+# direnv
+.direnv
+
+# pre-commit
+.pre-commit-config.yaml

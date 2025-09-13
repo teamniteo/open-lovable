@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import FirecrawlApp from '@mendable/firecrawl-js';
+import { buildKey, getCache, isLocalCacheEnabled, setCache } from '@/lib/localCache';
 
 export async function POST(request: NextRequest) {
   try {
@@ -37,6 +38,15 @@ export async function POST(request: NextRequest) {
     }
     
     const app = new FirecrawlApp({ apiKey });
+
+    // Local cache check
+    const cacheEnabled = isLocalCacheEnabled();
+    const ttlMs = Number(process.env.LOCAL_SCRAPE_CACHE_TTL_MS || 60 * 60 * 1000);
+    const cacheKey = buildKey(['scrape-website', url, formats, options]);
+    if (cacheEnabled) {
+      const cached = await getCache<any>(cacheKey, ttlMs);
+      if (cached) return NextResponse.json(cached);
+    }
     
     // Scrape the website using the latest SDK patterns
     // Include screenshot if requested in formats
@@ -57,7 +67,7 @@ export async function POST(request: NextRequest) {
     // The SDK may return data directly or nested
     const data = result.data || result;
     
-    return NextResponse.json({
+    const payload = {
       success: true,
       data: {
         title: data?.metadata?.title || "Untitled",
@@ -71,7 +81,13 @@ export async function POST(request: NextRequest) {
         // Include raw data for flexibility
         raw: data
       }
-    });
+    };
+
+    if (cacheEnabled) {
+      await setCache(cacheKey, payload);
+    }
+
+    return NextResponse.json(payload);
     
   } catch (error) {
     console.error("Error scraping website:", error);

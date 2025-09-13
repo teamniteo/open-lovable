@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { buildKey, getCache, isLocalCacheEnabled, setCache } from '@/lib/localCache';
 
 // Function to sanitize smart quotes and other problematic characters
 function sanitizeQuotes(text: string): string {
@@ -28,6 +29,23 @@ export async function POST(request: NextRequest) {
     }
     
     console.log('[scrape-url-enhanced] Scraping with Firecrawl:', url);
+
+    // Local cache (filesystem) - optional
+    const cacheEnabled = isLocalCacheEnabled();
+    const ttlMs = Number(process.env.LOCAL_SCRAPE_CACHE_TTL_MS || 60 * 60 * 1000); // 1h default
+    const cacheKey = buildKey(['scrape-url-enhanced', url]);
+    if (cacheEnabled) {
+      const cached = await getCache<any>(cacheKey, ttlMs);
+      if (cached) {
+        return NextResponse.json({
+          ...cached,
+          metadata: {
+            ...cached.metadata,
+            localCache: true,
+          },
+        });
+      }
+    }
     
     const FIRECRAWL_API_KEY = process.env.FIRECRAWL_API_KEY;
     if (!FIRECRAWL_API_KEY) {
@@ -95,7 +113,7 @@ Main Content:
 ${sanitizedMarkdown}
     `.trim();
     
-    return NextResponse.json({
+    const resultPayload = {
       success: true,
       url,
       content: formattedContent,
@@ -115,7 +133,13 @@ ${sanitizedMarkdown}
         ...metadata
       },
       message: 'URL scraped successfully with Firecrawl (with caching for 500% faster performance)'
-    });
+    };
+
+    if (cacheEnabled) {
+      await setCache(cacheKey, resultPayload);
+    }
+
+    return NextResponse.json(resultPayload);
     
   } catch (error) {
     console.error('[scrape-url-enhanced] Error:', error);

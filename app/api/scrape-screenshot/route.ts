@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import FirecrawlApp from '@mendable/firecrawl-js';
+import { buildKey, getCache, isLocalCacheEnabled, setCache } from '@/lib/localCache';
 
 export async function POST(req: NextRequest) {
   try {
@@ -24,6 +25,17 @@ export async function POST(req: NextRequest) {
     console.log('[scrape-screenshot] Attempting to capture screenshot for:', url);
     console.log('[scrape-screenshot] Using Firecrawl API key:', apiKey ? 'Present' : 'Missing');
 
+    // Local cache check
+    const cacheEnabled = isLocalCacheEnabled();
+    const ttlMs = Number(process.env.LOCAL_SCRAPE_CACHE_TTL_MS || 60 * 60 * 1000);
+    const cacheKey = buildKey(['scrape-screenshot', url]);
+    if (cacheEnabled) {
+      const cached = await getCache<any>(cacheKey, ttlMs);
+      if (cached) {
+        return NextResponse.json({ ...cached, metadata: { ...cached.metadata, localCache: true } });
+      }
+    }
+
     // Use the new v4 scrape method (not scrapeUrl)
     const scrapeResult = await app.scrape(url, {
       formats: ['screenshot'], // Request screenshot format
@@ -46,18 +58,22 @@ export async function POST(req: NextRequest) {
     // Check if we have data with screenshot
     if (scrapeResult && scrapeResult.screenshot) {
       // Direct screenshot response
-      return NextResponse.json({
+      const payload = {
         success: true,
         screenshot: scrapeResult.screenshot,
         metadata: scrapeResult.metadata || {}
-      });
+      };
+      if (cacheEnabled) await setCache(cacheKey, payload);
+      return NextResponse.json(payload);
     } else if ((scrapeResult as any)?.data?.screenshot) {
       // Nested data structure
-      return NextResponse.json({
+      const payload = {
         success: true,
         screenshot: (scrapeResult as any).data.screenshot,
         metadata: (scrapeResult as any).data.metadata || {}
-      });
+      };
+      if (cacheEnabled) await setCache(cacheKey, payload);
+      return NextResponse.json(payload);
     } else if ((scrapeResult as any)?.success === false) {
       // Explicit failure
       console.error('[scrape-screenshot] Firecrawl API error:', (scrapeResult as any).error);
